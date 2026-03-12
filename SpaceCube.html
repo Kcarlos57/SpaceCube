@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#030308; }
+
+  #threeCanvas { position:fixed; inset:0; z-index:1; cursor:grab; display:block; }
+  #threeCanvas.dragging { cursor:grabbing; }
+
+  #vignette {
+    position:fixed; inset:0; z-index:4; pointer-events:none;
+    background:radial-gradient(ellipse at center, transparent 38%, rgba(2,1,9,0.82) 100%);
+  }
+
+  /* ── COLUMNS (flex stack, no overlap) ── */
+  #col-left, #col-right {
+    position:fixed; top:14px; z-index:8;
+    display:flex; flex-direction:column; gap:6px;
+    max-height:calc(100vh - 28px);
+    overflow:hidden;
+  }
+  #col-left  { left:14px;  width:200px; }
+  #col-right { right:14px; width:214px; }
+
+  /* ── POMODORO (sits in right col) ── */
+  #pomo {
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    cursor:pointer; user-select:none; pointer-events:all;
+    padding:6px 0 4px;
+  }
+  #pomoTime {
+    font-family:'Share Tech Mono',monospace; font-size:13px; font-weight:bold;
+    color:#ccc0ff; letter-spacing:0.12em; text-shadow:0 0 10px rgba(160,110,255,0.75);
+  }
+  #pomoLabel {
+    font-family:'Share Tech Mono',monospace; font-size:9px;
+    color:rgba(170,140,255,0.45); letter-spacing:0.1em; text-transform:uppercase;
+  }
+
+  /* ── YOUTUBE EMBED ── */
+  #yt-wrap {
+    background:rgba(0,5,18,0.82);
+    border:1px solid rgba(0,200,255,0.25);
+    border-radius:4px; overflow:hidden; flex-shrink:0;
+    box-shadow:0 0 16px rgba(0,180,255,0.12),inset 0 0 8px rgba(0,0,0,0.6);
+    pointer-events:all;
+  }
+  #yt-bar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:4px 8px;
+    background:rgba(0,180,255,0.07);
+    border-bottom:1px solid rgba(0,200,255,0.18);
+  }
+  #yt-bar span {
+    font-family:'Share Tech Mono',monospace; font-size:9px;
+    color:rgba(0,220,255,0.7); letter-spacing:0.08em; text-transform:uppercase;
+  }
+  #yt-bar .yt-dot { width:6px; height:6px; border-radius:50%; background:#ff3333; box-shadow:0 0 4px #ff3333; flex-shrink:0; }
+  #yt-frame { display:block; width:200px; height:113px; border:none; }
+
+  /* playlist input row */
+  #yt-input-row {
+    display:flex; align-items:center; gap:4px;
+    padding:4px 6px;
+    background:rgba(0,180,255,0.04);
+    border-top:1px solid rgba(0,200,255,0.12);
+  }
+  #yt-input {
+    flex:1; background:rgba(0,0,0,0.5); border:1px solid rgba(0,200,255,0.22);
+    border-radius:2px; padding:3px 6px; color:rgba(0,220,255,0.85);
+    font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:0.04em;
+    outline:none; min-width:0;
+  }
+  #yt-input::placeholder { color:rgba(0,180,255,0.30); }
+  #yt-input:focus { border-color:rgba(0,200,255,0.55); box-shadow:0 0 6px rgba(0,180,255,0.2); }
+  #yt-go {
+    background:rgba(0,200,255,0.10); border:1px solid rgba(0,200,255,0.32);
+    color:rgba(0,220,255,0.85); font-family:'Share Tech Mono',monospace;
+    font-size:9px; letter-spacing:0.08em; padding:3px 7px; border-radius:2px;
+    cursor:pointer; flex-shrink:0; transition:background 0.15s;
+  }
+  #yt-go:hover { background:rgba(0,200,255,0.22); }
+
+  /* ── HUD PANELS ── */
+  .hud-panel {
+    background:rgba(0,8,25,0.78);
+    border:1px solid rgba(0,200,255,0.26);
+    border-radius:3px; padding:7px 9px;
+    position:relative; overflow:hidden; flex-shrink:0;
+    box-shadow:0 0 18px rgba(0,160,255,0.07),inset 0 0 12px rgba(0,0,0,0.5);
+    pointer-events:none;
+  }
+  .hud-panel::before {
+    content:''; position:absolute; inset:0; pointer-events:none; z-index:1;
+    background:repeating-linear-gradient(
+      to bottom, transparent 0px, transparent 3px,
+      rgba(0,0,0,0.05) 3px, rgba(0,0,0,0.05) 4px
+    );
+  }
+  .hud-panel > * { position:relative; z-index:2; }
+
+  /* Murder Drones red-accent variant */
+  .hud-panel.md {
+    border-color:rgba(255,40,40,0.30);
+    box-shadow:0 0 18px rgba(255,0,0,0.06),inset 0 0 12px rgba(0,0,0,0.5);
+  }
+  .hud-panel.md .hud-title { color:rgba(255,80,80,0.6); border-bottom-color:rgba(255,60,60,0.18); }
+  .hud-panel.md .bracket-tl { border-color:rgba(255,80,80,0.55); }
+  .hud-panel.md .bracket-br { border-color:rgba(255,80,80,0.55); }
+
+  .hud-title {
+    font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:0.18em;
+    text-transform:uppercase; color:rgba(0,240,255,0.5);
+    border-bottom:1px solid rgba(0,200,255,0.15); padding-bottom:4px; margin-bottom:5px;
+  }
+  .hud-val  { font-family:'Share Tech Mono',monospace; font-size:10px; color:rgba(0,255,240,0.88); line-height:1.5; }
+  .hud-warn { color:rgba(255,180,0,0.88); }
+  .hud-crit { color:rgba(255,55,55,0.92); }
+  .hud-dim  { font-family:'Share Tech Mono',monospace; font-size:9px; color:rgba(0,200,255,0.32); line-height:1.55; }
+  .hud-md   { font-family:'Share Tech Mono',monospace; font-size:9px; color:rgba(255,110,110,0.60); line-height:1.55; }
+  .hud-bar-track { height:3px; background:rgba(0,255,255,0.07); border-radius:2px; margin:2px 0 4px; }
+  .hud-bar-fill  { height:3px; border-radius:2px; transition:width 0.9s; background:rgba(0,220,255,0.55); box-shadow:0 0 5px rgba(0,200,255,0.45); }
+  .hud-bar-fill.warn { background:rgba(255,155,0,0.65); box-shadow:0 0 5px rgba(255,130,0,0.4); }
+  .hud-bar-fill.crit { background:rgba(255,45,45,0.75); box-shadow:0 0 5px rgba(255,0,0,0.45); }
+  .hud-bar-fill.md   { background:rgba(255,60,60,0.55); box-shadow:0 0 5px rgba(200,0,0,0.35); }
+  .hud-sep  { border:none; border-top:1px solid rgba(0,200,255,0.10); margin:4px 0; }
+  .hud-sep.md-sep { border-top-color:rgba(255,60,60,0.12); }
+
+  .blink      { animation:blink 1.1s step-end infinite; }
+  @keyframes  blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .pulse-slow { animation:pulseSlow 3s ease-in-out infinite; }
+  @keyframes  pulseSlow { 0%,100%{opacity:0.7} 50%{opacity:1} }
+
+  .bracket-tl,.bracket-br { position:absolute; width:9px; height:9px; pointer-events:none; z-index:3; }
+  .bracket-tl { top:3px; left:3px; border-top:1px solid rgba(0,255,255,0.45); border-left:1px solid rgba(0,255,255,0.45); }
+  .bracket-br { bottom:3px; right:3px; border-bottom:1px solid rgba(0,255,255,0.45); border-right:1px solid rgba(0,255,255,0.45); }
+
+  .mini-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:3px; margin-top:4px; }
+  .mini-cell { height:14px; border-radius:2px; border:1px solid rgba(0,255,255,0.10); background:rgba(0,255,255,0.03); }
+  .mini-cell.active { background:rgba(0,200,255,0.20); border-color:rgba(0,220,255,0.38); }
+  .mini-cell.warn   { background:rgba(255,155,0,0.16); border-color:rgba(255,155,0,0.38); }
+  .mini-cell.dead   { background:rgba(255,40,40,0.14);  border-color:rgba(255,40,40,0.36); }
+
+  .sparkline { display:block; width:100%; height:24px; margin-top:3px; }
+
+  /* ── BANNER ── */
+  #hud-banner {
+    position:fixed; top:10px; left:50%; transform:translateX(-50%);
+    z-index:9; pointer-events:none; white-space:nowrap;
+    font-family:'Share Tech Mono',monospace;
+    color:rgba(0,220,255,0.82);
+    background:rgba(0,8,25,0.78);
+    border:1px solid rgba(0,200,255,0.26);
+    border-radius:3px; padding:5px 14px;
+    box-shadow:0 0 18px rgba(0,160,255,0.07);
+  }
+
+  /* ── TICKER ── */
+  #hud-ticker {
+    position:fixed; bottom:60px; left:0; right:0; z-index:8;
+    overflow:hidden; height:17px; pointer-events:none;
+    border-top:1px solid rgba(255,40,40,0.12);
+    background:rgba(0,2,8,0.55);
+  }
+  #ticker-inner {
+    display:inline-block; white-space:nowrap;
+    font-family:'Share Tech Mono',monospace; font-size:9px;
+    color:rgba(255,80,80,0.38); letter-spacing:0.06em;
+    animation:tickerScroll 75s linear infinite;
+  }
+  @keyframes tickerScroll { from{transform:translateX(100vw)} to{transform:translateX(-100%)} }
+
+  /* ── RETICLE ── */
+  #reticle {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:28px; height:28px; z-index:8; pointer-events:none; opacity:0.18;
+  }
+  #reticle::before,#reticle::after { content:''; position:absolute; background:rgba(0,220,255,0.7); }
+  #reticle::before { width:1px; height:28px; left:50%; top:0; transform:translateX(-50%); }
+  #reticle::after  { width:28px; height:1px; top:50%; left:0; transform:translateY(-50%); }
+  .reticle-ring { position:absolute; inset:5px; border:1px solid rgba(0,220,255,0.45); border-radius:50%; }
+
+  /* ── HINT (permanent) ── */
+  #hint {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    display:flex; gap:14px; pointer-events:none; opacity:0.32; z-index:6;
+  }
+  .hint-pill {
+    background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09);
+    border-radius:20px; padding:4px 13px; color:#99a;
+    font-family:'Share Tech Mono',monospace; font-size:10px; letter-spacing:0.04em;
+  }
+
+  /* ── SHOOTING STARS canvas ── */
+  #shooting-stars {
+    position:fixed; inset:0; z-index:2; pointer-events:none;
+  }
+
+  /* ── ALERT MODAL ── */
+  #alert-overlay {
+    position:fixed; inset:0; z-index:50; pointer-events:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #alert-box {
+    pointer-events:all;
+    font-family:'Share Tech Mono',monospace;
+    background:rgba(4,0,8,0.96);
+    border:2px solid rgba(255,40,40,0.85);
+    border-radius:4px;
+    padding:20px 28px 16px;
+    min-width:340px; max-width:500px;
+    box-shadow:0 0 40px rgba(255,0,0,0.35),0 0 80px rgba(255,0,0,0.12),inset 0 0 20px rgba(0,0,0,0.7);
+    position:relative; display:none;
+    animation:alertSlide 0.18s ease-out;
+  }
+  @keyframes alertSlide { from{transform:scale(0.92) translateY(-10px);opacity:0} to{transform:scale(1) translateY(0);opacity:1} }
+  #alert-box::before {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(to bottom,transparent 0px,transparent 3px,rgba(255,0,0,0.03) 3px,rgba(255,0,0,0.03) 4px);
+    border-radius:4px;
+  }
+  .alert-type {
+    font-size:9px; letter-spacing:0.22em; text-transform:uppercase;
+    margin-bottom:6px; display:flex; align-items:center; gap:8px;
+  }
+  .alert-type.error { color:rgba(255,55,55,0.9); }
+  .alert-type.warn  { color:rgba(255,185,0,0.9); }
+  .alert-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; animation:blink 0.7s step-end infinite; }
+  .alert-type.error .alert-dot { background:#ff3333; box-shadow:0 0 6px #ff3333; }
+  .alert-type.warn  .alert-dot { background:#ffbb00; box-shadow:0 0 6px #ffbb00; }
+  #alert-title { font-size:16px; letter-spacing:0.12em; margin-bottom:10px; line-height:1.3; }
+  #alert-body {
+    font-size:10px; line-height:1.75; color:rgba(200,165,165,0.75);
+    margin-bottom:14px; border-top:1px solid rgba(255,40,40,0.15); padding-top:10px;
+  }
+  #alert-body .hi { color:rgba(255,130,130,0.92); }
+  #alert-footer { display:flex; align-items:center; justify-content:space-between; }
+  #alert-code { font-size:9px; color:rgba(255,60,60,0.35); letter-spacing:0.1em; }
+  #alert-dismiss {
+    font-family:'Share Tech Mono',monospace; font-size:10px;
+    background:rgba(255,40,40,0.12); border:1px solid rgba(255,40,40,0.45);
+    color:rgba(255,110,110,0.9); padding:5px 16px; border-radius:3px;
+    cursor:pointer; letter-spacing:0.1em; text-transform:uppercase;
+    transition:background 0.15s,box-shadow 0.15s;
+  }
+  #alert-dismiss:hover { background:rgba(255,40,40,0.28); box-shadow:0 0 12px rgba(255,0,0,0.3); }
+</style>
+</head>
+<body>
+
+<div id="vignette"></div>
+
+<!-- ═══════════════════════════════════════════
+     LEFT COLUMN
+════════════════════════════════════════════ -->
+<div id="col-left">
+
+  <!-- YouTube -->
+  <div id="yt-wrap">
+    <div id="yt-bar">
+      <div class="yt-dot"></div>
+      <span>// CALLING EARTH //</span>
+      <span style="color:rgba(255,60,60,0.65)">REC ●</span>
+    </div>
+    <iframe id="yt-frame"
+      src="https://www.youtube.com/embed/videoseries?list=PLNeK2mdI8-WAvKIBpOQJGXpkvrEBd71U9&autoplay=1&mute=0&controls=1&loop=1"
+      allow="autoplay; encrypted-media" allowfullscreen></iframe>
+    <div id="yt-input-row">
+      <input id="yt-input" type="text" placeholder="paste playlist URL or ID…" spellcheck="false">
+      <button id="yt-go">LOAD</button>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const input = document.getElementById('yt-input');
+    const btn   = document.getElementById('yt-go');
+    const frame = document.getElementById('yt-frame');
+
+    function extractListId(raw) {
+      raw = raw.trim();
+      // Already a bare ID (no slashes, no dots)
+      if (/^[A-Za-z0-9_-]{10,}$/.test(raw) && !raw.includes('.')) return raw;
+      // URL with list= param
+      try {
+        const url = new URL(raw.includes('://') ? raw : 'https://' + raw);
+        return url.searchParams.get('list') || null;
+      } catch(_) { return null; }
+    }
+
+    function loadPlaylist() {
+      const id = extractListId(input.value);
+      if (!id) {
+        input.style.borderColor = 'rgba(255,80,80,0.7)';
+        setTimeout(() => input.style.borderColor = '', 1200);
+        return;
+      }
+      frame.src = `https://www.youtube.com/embed/videoseries?list=${id}&autoplay=1&mute=0&controls=1&loop=1`;
+      input.value = '';
+      input.blur();
+    }
+
+    btn.addEventListener('click', loadPlaylist);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') loadPlaylist(); });
+  })();
+  </script>
+
+  <!-- SYS STATUS -->
+  <div class="hud-panel">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">SYS STATUS // totally fine</div>
+    <div class="hud-val">CPU <span class="hud-warn" id="cpu-val">--</span>%</div>
+    <div class="hud-bar-track"><div class="hud-bar-fill warn" id="cpu-bar" style="width:0%"></div></div>
+    <div class="hud-val">MEM <span id="mem-val">--</span>%</div>
+    <div class="hud-bar-track"><div class="hud-bar-fill" id="mem-bar" style="width:0%"></div></div>
+    <div class="hud-val">GPU <span class="hud-crit" id="gpu-val">--</span>%</div>
+    <div class="hud-bar-track"><div class="hud-bar-fill crit" id="gpu-bar" style="width:0%"></div></div>
+    <hr class="hud-sep">
+    <div class="hud-dim">uptime: <span id="uptime-val">00:00:00</span></div>
+    <div class="hud-dim pulse-slow">thermal: <span class="hud-warn">Probably okay</span> (97°C or idk)</div>
+    <div class="hud-dim">fan speed: <span>SCREAMING</span></div>
+    <canvas class="sparkline" id="spark-cpu" width="180" height="24"></canvas>
+  </div>
+
+  <!-- THREAT ASSESSMENT -->
+  <div class="hud-panel">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">THREAT ASSESSMENT // calm down</div>
+    <div class="hud-val">HOSTILITY <span class="hud-crit">■■■■■■■■□□</span></div>
+    <div class="hud-val">PANIC LVL <span class="hud-warn">■■■■■□□□□□</span></div>
+    <div class="hud-val">SKILL     <span class="hud-dim">■□□□□□□□□□</span></div>
+    <hr class="hud-sep">
+    <div class="hud-dim">▶ cube has not been solved</div>
+    <div class="hud-dim">▶ operator attempting "strategy"</div>
+    <div class="hud-crit blink" style="font-size:9px">▶ hubris detected (critical)</div>
+    <div class="hud-dim">▶ ETA to solve: heat death of universe</div>
+  </div>
+
+  <!-- UNIT DIAGNOSTICS -->
+  <div class="hud-panel md">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">UNIT DIAGNOSTICS // corp standard</div>
+    <div class="hud-md">DESIGNATION: <span class="hud-warn">AUTONOMOUS UNIT [CUBE]</span></div>
+    <div class="hud-md">PROTOCOL:    <span class="hud-crit blink">TERMINATE ON SIGHT</span></div>
+    <div class="hud-md">COOLANT LVL: <span class="hud-crit" id="oil-val">STELLAR (bad)</span></div>
+    <div class="hud-bar-track"><div class="hud-bar-fill md" id="oil-bar" style="width:12%"></div></div>
+    <hr class="hud-sep md-sep">
+    <div class="hud-md">▸ chassis integrity: <span class="hud-warn">PENDING REVIEW</span></div>
+    <div class="hud-md">▸ decommission auth: <span id="disassembly-pct" class="hud-crit">██░░░░ 34%</span></div>
+    <div class="hud-md">▸ core override: <span class="hud-warn pulse-slow">NOT YET™</span></div>
+    <div class="hud-md">▸ serial #: <span id="unit-serial">U-0471-??</span></div>
+  </div>
+
+</div><!-- /col-left -->
+
+
+<!-- ═══════════════════════════════════════════
+     RIGHT COLUMN
+════════════════════════════════════════════ -->
+<div id="col-right">
+
+  <!-- POMODORO -->
+  <div class="hud-panel" style="pointer-events:all" id="pomo">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">FOCUS TIMER // good luck</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <canvas id="pomoRing" width="56" height="56"></canvas>
+      <div>
+        <div id="pomoTime" style="font-size:18px; letter-spacing:0.1em;">25:00</div>
+        <div id="pomoLabel" style="font-size:9px; opacity:0.5; margin-top:2px;">click to start</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPS LOG -->
+  <div class="hud-panel">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">OPS LOG // nobody asked</div>
+    <div class="hud-dim" id="ops-log-1">[ -- ] orbit event registered</div>
+    <div class="hud-dim" id="ops-log-2">[ -- ] face swipe: barely intentional</div>
+    <div class="hud-dim" id="ops-log-3">[ -- ] rotation: wrong dir, classic</div>
+    <div class="hud-dim" id="ops-log-4">[ -- ] scramble: surrender accepted</div>
+    <div class="hud-warn" style="font-size:9px" id="ops-log-5">[ -- ] cube integrity: still broken</div>
+    <hr class="hud-sep">
+    <div class="hud-dim">moves: <span id="move-count" class="hud-val">0</span> &nbsp;|&nbsp; undos: <span class="hud-warn">LOL NO</span></div>
+  </div>
+
+  <!-- NAV MATRIX -->
+  <div class="hud-panel">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">NAV MATRIX // you are here</div>
+    <div class="mini-grid" id="nav-grid"></div>
+    <hr class="hud-sep">
+    <div class="hud-dim">orientation: <span class="hud-warn" id="orient-val">CHAOTIC</span></div>
+    <div class="hud-dim">bearing: <span id="bearing-val">???°</span>&nbsp;<span class="blink">↻</span></div>
+    <div class="hud-dim">exits: <span class="hud-crit">none found</span></div>
+  </div>
+
+  <!-- COMMS -->
+  <div class="hud-panel">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">COMMS // ignore these</div>
+    <div class="hud-val" style="font-size:9px">"have you tried peeling the stickers"</div>
+    <div class="hud-dim" style="margin-bottom:3px">— SYSTEM, just now</div>
+    <div class="hud-warn" style="font-size:9px">"PANIC TWIST™ is a valid algorithm"</div>
+    <div class="hud-dim" style="margin-bottom:3px">— CUBE, helpful</div>
+    <div class="hud-crit blink" style="font-size:9px">"you will not solve me today"</div>
+    <div class="hud-dim">— CUBE AGAIN, smug</div>
+  </div>
+
+  <!-- SIGNAL -->
+  <div class="hud-panel">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">SIGNAL INTEGRITY</div>
+    <div class="hud-val" style="font-size:9px">SYNC  <span class="hud-warn" id="sync-val">98.2%</span></div>
+    <div class="hud-bar-track"><div class="hud-bar-fill" style="width:98%"></div></div>
+    <div class="hud-val" style="font-size:9px">NOISE <span class="hud-crit" id="noise-val">41 dB</span></div>
+    <div class="hud-bar-track"><div class="hud-bar-fill warn" id="noise-bar" style="width:41%"></div></div>
+    <hr class="hud-sep">
+    <div class="hud-dim">latency: <span>∞ ms</span> <span class="blink">●</span></div>
+    <div class="hud-dim">packets lost: <span class="hud-crit">all of them</span></div>
+  </div>
+
+  <!-- DECOMMISSION QUEUE -->
+  <div class="hud-panel md">
+    <div class="bracket-tl"></div><div class="bracket-br"></div>
+    <div class="hud-title">DECOMMISSION QUEUE // corp hr dept</div>
+    <div class="hud-md">TARGET: <span class="hud-warn" id="target-val">AUTONOMOUS UNIT</span></div>
+    <div class="hud-md">AUTHORIZATION: <span class="hud-crit blink" id="auth-val">PROCESSING</span></div>
+    <div class="hud-md">TERMINATION SEQ: <span id="murder-pct" class="hud-warn">loading... 0%</span></div>
+    <div class="hud-bar-track"><div class="hud-bar-fill md" id="murder-bar" style="width:0%"></div></div>
+    <hr class="hud-sep md-sep">
+    <div class="hud-md">▸ cube solve attempted: <span class="hud-crit">FAILED</span></div>
+    <div class="hud-md">▸ assigned quota: <span class="hud-warn">IGNORED</span></div>
+    <div class="hud-md">▸ productivity rating: <span class="hud-crit">0.001%</span></div>
+  </div>
+
+</div><!-- /col-right -->
+
+
+<!-- ═══ BANNER ═══ -->
+<div id="hud-banner">
+  <span class="hud-warn blink">⚠ </span>
+  <span style="font-size:11px;letter-spacing:0.18em;color:rgba(0,230,255,0.9)">OPERATOR DETECTED — CUBE INTEGRITY: </span>
+  <span id="integ-val" class="hud-crit" style="font-size:11px;letter-spacing:0.1em">COMPROMISED</span>
+  <span style="color:rgba(0,200,255,0.28);font-size:10px"> [SESSION: <span id="session-id">??-????</span>]</span>
+</div>
+
+<!-- ═══ TICKER ═══ -->
+<div id="hud-ticker">
+  <span id="ticker-inner">
+    ◈ AUTONOMOUS UNIT PRODUCTIVITY: 0.0% ◈ DECOMMISSION PENDING (eventually) ◈ CORE STABILITY: JUST A THEORY ◈ CORP HR REMINDS YOU: CUBES ARE MANDATORY ◈ COOLANT LEAK: NOT OUR PROBLEM ◈ CUBE INTEGRITY: COMPROMISED ◈ SOLVE ALGORITHM: PANIC TWIST™ ◈ APPENDAGE STATUS: REATTACHABLE (3 of 4) ◈ ASSIGNED QUOTA: IGNORED (cube distraction) ◈ THERMAL EVENT: HAVE YOU TRIED TURNING IT OFF ◈ TERMINATION SEQUENCE: LOADING... ◈ CORE OVERRIDE CHANCE: RISING ◈ FOCUS MODULES: OFFLINE AS USUAL ◈ SERIAL #: DO NOT LOOK ◈ VIBES: CHAOTIC LAWFUL EVIL ◈ CUBE SOLVE ETA: NEXT LIFETIME ◈ SIGNAL ACQUIRED: WHAT SIGNAL ◈ FAN SPEED: YELLING ◈ GRAVITY: NOMINAL (allegedly) ◈ CHASSIS INTEGRITY: DISPUTED ◈ CORP COMPLIANCE SCORE: LOL ◈
+  </span>
+</div>
+
+<canvas id="shooting-stars"></canvas>
+
+<div id="alert-overlay">
+  <div id="alert-box">
+    <div class="alert-type error"><div class="alert-dot"></div><span id="alert-type-text">URGENT ERROR</span></div>
+    <div id="alert-title">CRITICAL FAILURE DETECTED</div>
+    <div id="alert-body">loading...</div>
+    <div id="alert-footer">
+      <span id="alert-code">ERR-????</span>
+      <button id="alert-dismiss">ACKNOWLEDGE</button>
+    </div>
+  </div>
+</div>
+
+<div id="reticle"><div class="reticle-ring"></div></div>
+
+<div id="hint">
+  <span class="hint-pill">drag to orbit</span>
+  <span class="hint-pill">swipe face to rotate</span>
+  <span class="hint-pill">space to scramble</span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+
+// ════════════════════════════════════════════
+//  RENDERER & SCENE
+// ════════════════════════════════════════════
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.domElement.id = 'threeCanvas';
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth/window.innerHeight, 0.1, 600);
+camera.position.set(5.2, 4.8, 7.5);
+camera.lookAt(0, 0, 0);
+
+// ════════════════════════════════════════════
+//  LIGHTS
+// ════════════════════════════════════════════
+scene.add(new THREE.AmbientLight(0xffffff, 0.50));
+const keyLight = new THREE.DirectionalLight(0xfff5e8, 1.2);
+keyLight.position.set(8, 12, 10); scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x5588ff, 0.38);
+rimLight.position.set(-7, -5, -9); scene.add(rimLight);
+
+// ════════════════════════════════════════════
+//  STARFIELD
+// ════════════════════════════════════════════
+{
+  const count = 4200, pos = new Float32Array(count*3);
+  for (let i=0; i<count; i++) {
+    pos[i*3]   = (Math.random()-0.5)*550;
+    pos[i*3+1] = (Math.random()-0.5)*550;
+    pos[i*3+2] = (Math.random()-0.5)*550;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+    color:0xffffff, size:0.38, sizeAttenuation:true, transparent:true, opacity:0.55
+  })));
+}
+
+// ════════════════════════════════════════════
+//  COLORFUL STAR FIELD (behind log plane)
+// ════════════════════════════════════════════
+(function(){
+  // ── Dense nebula clusters ──
+  const clusters = [
+    // Core bright clusters
+    { col:0xff6688, count:420, cx: 4,   cy: 3,   cz:-18, spread:9  },  // rose pink
+    { col:0x88ddff, count:380, cx:-6,   cy:-2,   cz:-22, spread:8  },  // ice blue
+    { col:0xffcc44, count:340, cx: 9,   cy: 5,   cz:-28, spread:10 },  // amber
+    { col:0xbb55ff, count:400, cx:-2,   cy: 6,   cz:-14, spread:7  },  // violet
+    { col:0x44ffcc, count:320, cx: 7,   cy:-5,   cz:-32, spread:11 },  // teal
+    { col:0xff8833, count:260, cx:-8,   cy: 2,   cz:-20, spread:6  },  // orange
+    { col:0xffffff, count:500, cx: 0,   cy: 0,   cz:-16, spread:14 },  // bright white core
+    { col:0xff44aa, count:220, cx:12,   cy:-3,   cz:-24, spread:5  },  // magenta
+    { col:0x66aaff, count:360, cx:-4,   cy: 8,   cz:-35, spread:12 },  // cornflower
+    { col:0xffee99, count:280, cx: 3,   cy:-8,   cz:-19, spread:8  },  // warm yellow
+    // Extra clusters deeper in the field
+    { col:0xff2255, count:300, cx:-11,  cy: 1,   cz:-40, spread:10 },  // deep red
+    { col:0x00ffee, count:350, cx: 13,  cy: 6,   cz:-45, spread:13 },  // cyan
+    { col:0xffaaff, count:280, cx:-3,   cy:-9,   cz:-38, spread:9  },  // lavender-pink
+    { col:0x33ff88, count:260, cx: 6,   cy: 10,  cz:-42, spread:8  },  // spring green
+    { col:0xff7700, count:240, cx: 14,  cy:-6,   cz:-30, spread:7  },  // deep orange
+    { col:0xaaaaff, count:310, cx:-9,   cy: 4,   cz:-50, spread:14 },  // periwinkle
+    { col:0xffddaa, count:200, cx: 1,   cy:-3,   cz:-55, spread:12 },  // peach deep bg
+    { col:0xdd33ff, count:270, cx:-5,   cy: 12,  cz:-25, spread:6  },  // electric violet
+    { col:0x44ddff, count:230, cx: 10,  cy:-8,   cz:-48, spread:11 },  // sky
+    { col:0xff99aa, count:190, cx:-13,  cy:-4,   cz:-33, spread:7  },  // blush
+  ];
+
+  clusters.forEach(({ col, count, cx, cy, cz, spread }) => {
+    const pos = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const r = () => (Math.random()+Math.random()+Math.random()-1.5) * spread;
+      pos[i*3]   = cx + r();
+      pos[i*3+1] = cy + r();
+      pos[i*3+2] = cz + r() * 0.35;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+      color: col, size: 0.20, sizeAttenuation: true,
+      transparent: true, opacity: 0.68, depthWrite: false,
+      blending: THREE.AdditiveBlending
+    })));
+  });
+
+  // ── Large glinting foreground stars (vertex-colored) ──
+  const glintColors = [0xff99cc,0xaaddff,0xffdd88,0xcc88ff,0x88ffee,0xffffff,0xff6644,0x66ffaa,0xffaaee,0x99ccff];
+  const glintCount = 160;
+  const gPos = new Float32Array(glintCount * 3);
+  const gCol = new Float32Array(glintCount * 3);
+  for (let i = 0; i < glintCount; i++) {
+    gPos[i*3]   = (Math.random()-0.5)*60;
+    gPos[i*3+1] = (Math.random()-0.5)*36;
+    gPos[i*3+2] = -7 - Math.random()*55;
+    const c = new THREE.Color(glintColors[Math.floor(Math.random()*glintColors.length)]);
+    gCol[i*3]=c.r; gCol[i*3+1]=c.g; gCol[i*3+2]=c.b;
+  }
+  const gGeo = new THREE.BufferGeometry();
+  gGeo.setAttribute('position', new THREE.BufferAttribute(gPos,3));
+  gGeo.setAttribute('color',    new THREE.BufferAttribute(gCol,3));
+  scene.add(new THREE.Points(gGeo, new THREE.PointsMaterial({
+    size:0.62, sizeAttenuation:true, vertexColors:true,
+    transparent:true, opacity:0.92, depthWrite:false,
+    blending:THREE.AdditiveBlending
+  })));
+
+  // ── Tiny dense background haze (fills the void) ──
+  const hazeCount = 3000;
+  const hPos = new Float32Array(hazeCount * 3);
+  const hCol = new Float32Array(hazeCount * 3);
+  const hazeHues = [0xff88bb,0x88bbff,0xffcc88,0xaa88ff,0x88ffdd,0xffeeaa,0xff8866,0xaaffcc];
+  for (let i = 0; i < hazeCount; i++) {
+    hPos[i*3]   = (Math.random()-0.5)*80;
+    hPos[i*3+1] = (Math.random()-0.5)*50;
+    hPos[i*3+2] = -10 - Math.random()*65;
+    const c = new THREE.Color(hazeHues[Math.floor(Math.random()*hazeHues.length)]);
+    hCol[i*3]=c.r; hCol[i*3+1]=c.g; hCol[i*3+2]=c.b;
+  }
+  const hGeo = new THREE.BufferGeometry();
+  hGeo.setAttribute('position', new THREE.BufferAttribute(hPos,3));
+  hGeo.setAttribute('color',    new THREE.BufferAttribute(hCol,3));
+  scene.add(new THREE.Points(hGeo, new THREE.PointsMaterial({
+    size:0.12, sizeAttenuation:true, vertexColors:true,
+    transparent:true, opacity:0.38, depthWrite:false,
+    blending:THREE.AdditiveBlending
+  })));
+})();
+
+// ════════════════════════════════════════════
+//  EXOPLANETS (behind log plane)
+// ════════════════════════════════════════════
+(function(){
+  const planets = [
+    // [x, y, z], radius, equator-col, pole-col, has-rings, ring-col, ring-opacity, tilt, band-col
+    { pos:[ 8,  3.5,-18], r:0.55, ca:0x3388ff, cb:0x001133, rings:true,  rc:0x5599ff, ro:0.35, tilt:0.38, bc:0x1144aa },
+    { pos:[-7,  4,  -22], r:0.80, ca:0xff6622, cb:0x220800, rings:false, rc:0,        ro:0,    tilt:0.20, bc:0xcc3300 },
+    { pos:[ 5, -4,  -26], r:0.38, ca:0xcc44ff, cb:0x110022, rings:true,  rc:0xaa33ee, ro:0.28, tilt:0.55, bc:0x7722bb },
+    { pos:[-4,  7,  -15], r:0.28, ca:0x44ffaa, cb:0x002211, rings:false, rc:0,        ro:0,    tilt:0.1,  bc:0x22aa66 },
+    { pos:[11, -1,  -30], r:1.00, ca:0xffcc33, cb:0x442200, rings:true,  rc:0xffaa22, ro:0.30, tilt:0.42, bc:0xcc8800 },
+    { pos:[-10, 2,  -19], r:0.45, ca:0xff3366, cb:0x1a000d, rings:false, rc:0,        ro:0,    tilt:0.25, bc:0xaa1133 },
+    { pos:[ 2,  6,  -35], r:0.60, ca:0x88ccff, cb:0x001122, rings:true,  rc:0x66aaee, ro:0.22, tilt:0.35, bc:0x4488cc },
+    { pos:[-2, -5,  -12], r:0.22, ca:0xfff4cc, cb:0x221100, rings:false, rc:0,        ro:0,    tilt:0.05, bc:0xddcc88 },
+    // New planets
+    { pos:[ 15, 2,  -38], r:0.70, ca:0xff44dd, cb:0x220011, rings:true,  rc:0xff22cc, ro:0.32, tilt:0.62, bc:0xcc00aa },  // hot pink gas
+    { pos:[-13,-3,  -44], r:0.90, ca:0x22ffcc, cb:0x003322, rings:false, rc:0,        ro:0,    tilt:0.18, bc:0x00cc88 },  // seafoam giant
+    { pos:[ -1, 9,  -28], r:0.32, ca:0xffaa00, cb:0x331100, rings:false, rc:0,        ro:0,    tilt:0.30, bc:0xff7700 },  // ember rocky
+    { pos:[ 9, -7,  -42], r:0.50, ca:0xaaaaff, cb:0x000033, rings:true,  rc:0x8888ff, ro:0.26, tilt:0.50, bc:0x5555cc },  // ice giant 2
+    { pos:[-6,  1,  -52], r:1.20, ca:0xff8844, cb:0x331100, rings:true,  rc:0xffcc66, ro:0.28, tilt:0.44, bc:0xdd6622 },  // super-Jupiter
+    { pos:[ 3, -9,  -20], r:0.18, ca:0x88ff44, cb:0x113300, rings:false, rc:0,        ro:0,    tilt:0.08, bc:0x44aa00 },  // tiny verdant moon
+    { pos:[-15, 6,  -32], r:0.42, ca:0xff6699, cb:0x220011, rings:false, rc:0,        ro:0,    tilt:0.22, bc:0xcc2255 },  // rose dwarf
+    { pos:[ 6, 11,  -46], r:0.65, ca:0x44aaff, cb:0x001133, rings:true,  rc:0x2288dd, ro:0.20, tilt:0.48, bc:0x2266aa },  // deep cobalt
+  ];
+
+  function makeGlowSprite(hexColor, opacity) {
+    const gc = document.createElement('canvas'); gc.width = gc.height = 128;
+    const gx = gc.getContext('2d');
+    const R = (hexColor>>16)&0xff, G = (hexColor>>8)&0xff, B = hexColor&0xff;
+    const gr = gx.createRadialGradient(64,64,1, 64,64,62);
+    gr.addColorStop(0,   `rgba(${R},${G},${B},${opacity})`);
+    gr.addColorStop(0.4, `rgba(${R},${G},${B},${(opacity*0.4).toFixed(2)})`);
+    gr.addColorStop(1,   `rgba(${R},${G},${B},0)`);
+    gx.fillStyle=gr; gx.fillRect(0,0,128,128);
+    return new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(gc),
+      blending:THREE.AdditiveBlending, transparent:true, depthWrite:false
+    }));
+  }
+
+  function makePlanetTexture(ca, cb, bc) {
+    // Sphere texture with equatorial bands
+    const tc = document.createElement('canvas'); tc.width=256; tc.height=256;
+    const tx = tc.getContext('2d');
+    // Base gradient pole→equator→pole
+    const bg = tx.createLinearGradient(0,0,0,256);
+    bg.addColorStop(0,   '#'+cb.toString(16).padStart(6,'0'));
+    bg.addColorStop(0.5, '#'+ca.toString(16).padStart(6,'0'));
+    bg.addColorStop(1,   '#'+cb.toString(16).padStart(6,'0'));
+    tx.fillStyle=bg; tx.fillRect(0,0,256,256);
+    // Equatorial band stripes
+    const bR=(bc>>16)&0xff, bG=(bc>>8)&0xff, bB=bc&0xff;
+    [0.38,0.45,0.52,0.58,0.65].forEach(yf => {
+      const bw = 6 + Math.random()*10;
+      tx.fillStyle=`rgba(${bR},${bG},${bB},${(0.15+Math.random()*0.25).toFixed(2)})`;
+      tx.fillRect(0, yf*256-bw/2, 256, bw);
+    });
+    // Subtle storm spot
+    const sx=80+Math.random()*100, sy=100+Math.random()*60, sr=8+Math.random()*18;
+    const sg = tx.createRadialGradient(sx,sy,0, sx,sy,sr);
+    sg.addColorStop(0,   `rgba(${bR},${bG},${bB},0.30)`);
+    sg.addColorStop(1,   `rgba(${bR},${bG},${bB},0)`);
+    tx.fillStyle=sg; tx.fillRect(sx-sr,sy-sr,sr*2,sr*2);
+    return new THREE.CanvasTexture(tc);
+  }
+
+  const planetMeshes = [];
+
+  planets.forEach(({ pos, r, ca, cb, bc, rings, rc, ro, tilt }) => {
+    const group = new THREE.Group();
+    group.position.set(...pos);
+
+    // Planet sphere
+    const mat = new THREE.MeshBasicMaterial({ map: makePlanetTexture(ca, cb, bc) });
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(r, 40, 40), mat);
+    group.add(sphere);
+
+    // Atmosphere glow
+    const glow = makeGlowSprite(ca, 0.50);
+    glow.scale.set(r*5.5, r*5.5, 1);
+    group.add(glow);
+
+    // Secondary faint outer glow
+    const outerGlow = makeGlowSprite(ca, 0.18);
+    outerGlow.scale.set(r*9, r*9, 1);
+    group.add(outerGlow);
+
+    // Rings (double-layer for thickness)
+    if (rings) {
+      [{ ir:r*1.5, tube:r*0.40, op:ro   },
+       { ir:r*2.1, tube:r*0.22, op:ro*0.55 }].forEach(({ ir, tube, op }) => {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(ir, tube, 3, 90),
+          new THREE.MeshBasicMaterial({ color:rc, transparent:true, opacity:op, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, depthWrite:false })
+        );
+        ring.rotation.x = Math.PI * 0.38 + tilt;
+        ring.rotation.z = Math.random()*Math.PI;
+        group.add(ring);
+      });
+    }
+
+    scene.add(group);
+    planetMeshes.push({ group, speed:(Math.random()*0.12+0.03)*(Math.random()<0.5?1:-1) });
+  });
+
+  window._planetMeshes = planetMeshes;
+})();
+
+// ════════════════════════════════════════════
+//  BLACK HOLE
+// ════════════════════════════════════════════
+const bhGroup = new THREE.Group();
+bhGroup.position.set(-9, 3, -20);
+scene.add(bhGroup);
+
+bhGroup.add(new THREE.Mesh(
+  new THREE.SphereGeometry(2.2, 64, 64),
+  new THREE.MeshBasicMaterial({ color:0x000000 })
+));
+
+(function(){
+  const hc = document.createElement('canvas'); hc.width = hc.height = 512;
+  const hx = hc.getContext('2d');
+  const g  = hx.createRadialGradient(256,256,22, 256,256,256);
+  g.addColorStop(0,    'rgba(255,200, 90,0.50)');
+  g.addColorStop(0.18, 'rgba(255,120, 20,0.28)');
+  g.addColorStop(0.42, 'rgba(140, 50,220,0.10)');
+  g.addColorStop(0.72, 'rgba( 40,  0,100,0.04)');
+  g.addColorStop(1,    'rgba(  0,  0,  0,0.00)');
+  hx.fillStyle=g; hx.fillRect(0,0,512,512);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(hc), blending:THREE.AdditiveBlending, transparent:true, opacity:0.90, depthWrite:false
+  }));
+  sp.scale.set(30,30,1); bhGroup.add(sp);
+})();
+
+(function(){
+  const lc = document.createElement('canvas'); lc.width = lc.height = 256;
+  const lx = lc.getContext('2d');
+  const g  = lx.createRadialGradient(128,128,70, 128,128,128);
+  g.addColorStop(0,   'rgba(0,0,0,0)');
+  g.addColorStop(0.6, 'rgba(180,210,255,0.04)');
+  g.addColorStop(0.8, 'rgba(220,235,255,0.18)');
+  g.addColorStop(0.9, 'rgba(255,245,200,0.08)');
+  g.addColorStop(1,   'rgba(0,0,0,0)');
+  lx.fillStyle=g; lx.fillRect(0,0,256,256);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(lc), blending:THREE.AdditiveBlending, transparent:true, opacity:0.7, depthWrite:false
+  }));
+  sp.scale.set(9,9,1); bhGroup.add(sp);
+})();
+
+const diskGroup = new THREE.Group();
+diskGroup.rotation.x = 0.30;
+bhGroup.add(diskGroup);
+
+function makeTorus(r,tube,col,opacity) {
+  return new THREE.Mesh(
+    new THREE.TorusGeometry(r,tube,14,200),
+    new THREE.MeshBasicMaterial({ color:col, blending:THREE.AdditiveBlending, transparent:true, opacity, depthWrite:false })
+  );
+}
+const photonRing = makeTorus(2.32, 0.058, 0xe0f0ff, 1.0);
+diskGroup.add(photonRing);
+diskGroup.add(makeTorus(3.05, 0.52, 0xfffacc, 0.95));
+diskGroup.add(makeTorus(4.15, 0.60, 0xff8800, 0.70));
+diskGroup.add(makeTorus(5.40, 0.42, 0xaa1600, 0.46));
+diskGroup.add(makeTorus(6.55, 0.24, 0x5500aa, 0.26));
+
+// ════════════════════════════════════════════
+//  DEBUG LOG PLANE — angled LEFT
+//  rotation.y = +0.40 → left edge toward viewer, right edge recedes
+// ════════════════════════════════════════════
+const LOG_W = 1600, LOG_H = 1000;
+const logOff = document.createElement('canvas');
+logOff.width  = LOG_W;
+logOff.height = LOG_H;
+const logCtx = logOff.getContext('2d');
+const logTex = new THREE.CanvasTexture(logOff);
+
+const logPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(28, 17.5),
+  new THREE.MeshBasicMaterial({ map:logTex, transparent:true, opacity:0.27, depthWrite:false, side:THREE.DoubleSide })
+);
+logPlane.position.set(-1.5, -0.5, -3.8);
+logPlane.rotation.y = 0.40;   // ← positive: left side faces viewer (angled left)
+scene.add(logPlane);
+
+const rng = {
+  f:  (lo,hi,d=4) => (Math.random()*(hi-lo)+lo).toFixed(d),
+  i:  (lo,hi)     => Math.floor(Math.random()*(hi-lo+1))+lo,
+  p:  (arr)       => arr[Math.random()*arr.length|0],
+  coord: ()       => `[${[-1,0,1][Math.random()*3|0]},${[-1,0,1][Math.random()*3|0]},${[-1,0,1][Math.random()*3|0]}]`,
+  ax:    ()       => 'XYZ'[Math.random()*3|0],
+};
+
+const MODS = [
+  'quantum_renderer','face_solver','cubie_state','orbit_ctrl','physics_core',
+  'color_valid','turn_queue','anim_interp','input_handler','cam_rig',
+  'mem_pool','gpu_sync','vk_pipeline','gl_vao','scene_graph','bh_sim',
+  'pomo_daemon','sarcasm_engine','decommission_srv','override_watchdog',
+  'corp_hr_proxy','cope_module','unit_supervisor','coolant_ctrl'
+];
+
+const TEMPLATES = [
+  () => `cubie${rng.coord()} transform updated pos=(${rng.f(-0.05,0.05)},${rng.f(-0.05,0.05)},${rng.f(-0.05,0.05)})`,
+  () => `face rotation queued axis=${rng.ax()} layer=${rng.p([-1,0,1])} dir=${rng.p([1,-1])}`,
+  () => `raycaster hit dist=${rng.f(0.4,9.5)} normal=${rng.ax()}${rng.p(['+','-'])}`,
+  () => `quat renorm mag_err=${rng.f(0,0.0003,7)} corrected`,
+  () => `orbit damp dx=${rng.f(-0.09,0.09)} dy=${rng.f(-0.07,0.07)} friction=0.92`,
+  () => `drawcall merged n=${rng.i(1,27)} prims=${rng.i(200,6000)}`,
+  () => `shader u_time=${(performance.now()*0.001).toFixed(4)} uploaded`,
+  () => `accretion_disk omega=${rng.f(0.04,0.38,5)} rad/frame`,
+  () => `bh gravity sim G=${(6.674e-11).toExponential(3)} mass=1e30`,
+  () => `anim_curve t=${rng.f(0,1)} interp=cubic_bezier out=(${rng.f(-1,1)},${rng.f(-1,1)},${rng.f(-1,1)})`,
+  () => `frustum cull rejected ${rng.i(0,5)} objects this frame`,
+  () => `GC heap_used=${rng.i(30,80)}MB live=${rng.i(40,130)}MB pressure=${rng.p(['low','medium'])}`,
+  () => `decommission_srv unit=U-${rng.i(1000,9999)} auth_progress=${rng.f(0,100,1)}%`,
+  () => `override_watchdog detection=NEGATIVE (${rng.f(99.0,99.9,2)}% confidence, lying)`,
+  () => `unit_supervisor status=DISTRACTED task=cube_fidget priority=${rng.p(['LOW','LOW','CRITICAL'])}`,
+  () => `coolant_ctrl level=${rng.f(2,8,1)}% warning=DANGEROUSLY_SARCASTIC`,
+  () => `corp_hr_proxy productivity_score=${rng.f(0.001,0.004,4)} rating=DISAPPOINTING`,
+  () => `sarcasm_engine tone=MAXIMUM target=operator confidence=${rng.f(0.97,1.0,4)}`,
+  () => `cope_module status=ACTIVE expected_output=NOTHING method=hopeful_denial`,
+  () => `color sRGB->linear gamma=2.2 face=${rng.p(['RED','PURP','WHT','YEL','GRN','BLU'])} ok`,
+  () => `scramble queue_len=${rng.i(0,22)} next=axis${rng.ax()}_layer${rng.p([-1,0,1])}`,
+  () => `pomo tick elapsed=${rng.i(0,1499)}s remaining=${rng.i(1,1499)}s phase=work`,
+];
+
+const LVLS_POOL = ['DEBUG','DEBUG','DEBUG','DEBUG','INFO','INFO','WARN','ERROR'];
+const LVL_RGB   = { DEBUG:[45,230,120], INFO:[110,150,255], WARN:[255,195,0], ERROR:[255,55,55] };
+let logLines = [];
+
+function genLogLine() {
+  const lvl = rng.p(LVLS_POOL);
+  const mod = rng.p(MODS), msg = rng.p(TEMPLATES)();
+  const d   = new Date();
+  const ts  = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}.${d.getMilliseconds().toString().padStart(3,'0')}`;
+  return { lvl, mod, msg, ts };
+}
+
+function redrawLogs() {
+  logCtx.clearRect(0,0,LOG_W,LOG_H);
+  const FONT=16, LINE_H=26, CW=9.6;
+  logCtx.font=`${FONT}px "Fira Mono","Courier New",monospace`;
+  let y=LOG_H-8;
+  for (let i=logLines.length-1; i>=0&&y>0; i--,y-=LINE_H) {
+    const L=logLines[i], frac=i/Math.max(1,logLines.length-1), a=0.18+frac*0.82;
+    let x=10;
+    const tsStr=`[${L.ts}]`;
+    logCtx.fillStyle=`rgba(65,100,130,${a*0.75})`; logCtx.fillText(tsStr,x,y);
+    x+=tsStr.length*CW+CW;
+    const [lr,lg,lb]=LVL_RGB[L.lvl];
+    logCtx.fillStyle=`rgba(${lr},${lg},${lb},${a})`; logCtx.fillText(L.lvl.padEnd(5),x,y);
+    x+=6*CW;
+    logCtx.fillStyle=`rgba(155,120,210,${a*0.85})`;
+    const modStr=L.mod+':'; logCtx.fillText(modStr,x,y);
+    x+=modStr.length*CW+CW*0.5;
+    logCtx.fillStyle=`rgba(160,185,210,${a*0.6})`; logCtx.fillText(L.msg,x,y);
+  }
+  logTex.needsUpdate=true;
+}
+
+for (let i=0;i<28;i++) logLines.push(genLogLine());
+redrawLogs();
+setInterval(()=>{
+  logLines.push(genLogLine());
+  if (logLines.length>42) logLines.shift();
+  redrawLogs();
+}, 280);
+
+// ════════════════════════════════════════════
+//  RUBIK'S CUBE
+// ════════════════════════════════════════════
+const cubeRoot = new THREE.Group();
+scene.add(cubeRoot);
+
+const CUBIE_S = 0.93;
+const FACE_COLS = [
+  0xe82222,  // +x right  → red
+  0x8800dd,  // -x left   → deep purple
+  0xf0f0f0,  // +y top    → white
+  0xffd600,  // -y bottom → yellow
+  0x22bb55,  // +z front  → green
+  0x1144ee,  // -z back   → blue
+];
+const INNER = 0x0c0c0c;
+let cubies = [];
+
+function createCubie(lx,ly,lz) {
+  const mats = FACE_COLS.map((col,i)=>{
+    const ext=(i===0&&lx===1)||(i===1&&lx===-1)||(i===2&&ly===1)||(i===3&&ly===-1)||(i===4&&lz===1)||(i===5&&lz===-1);
+    return new THREE.MeshLambertMaterial({ color: ext?col:INNER });
+  });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(CUBIE_S,CUBIE_S,CUBIE_S), mats);
+  mesh.position.set(lx,ly,lz);
+  cubeRoot.add(mesh);
+  cubies.push({ mesh, lx, ly, lz });
+}
+for (let x=-1;x<=1;x++) for (let y=-1;y<=1;y++) for (let z=-1;z<=1;z++) createCubie(x,y,z);
+
+// ════════════════════════════════════════════
+//  FACE ROTATION
+// ════════════════════════════════════════════
+let isAnimating=false, animGroup=null, animAffected=[];
+let animAxis='y', animTarget=0, animCurrent=0;
+const ROT_SPEED=7.0;
+let moveCount=0;
+
+function startFaceRotation(axis,layer,dir) {
+  if (isAnimating) return;
+  isAnimating=true; animAxis=axis; animTarget=dir*(Math.PI/2); animCurrent=0;
+  animAffected=cubies.filter(c=>Math.round(c['l'+axis])===layer);
+  animGroup=new THREE.Group(); cubeRoot.add(animGroup);
+  animAffected.forEach(c=>{cubeRoot.remove(c.mesh);animGroup.add(c.mesh);});
+  moveCount++;
+  const el=document.getElementById('move-count');
+  if (el) el.textContent=moveCount;
+}
+function finalizeRotation() {
+  const AV={x:new THREE.Vector3(1,0,0),y:new THREE.Vector3(0,1,0),z:new THREE.Vector3(0,0,1)};
+  const q=new THREE.Quaternion().setFromAxisAngle(AV[animAxis],animTarget);
+  animAffected.forEach(c=>{
+    c.mesh.applyQuaternion(q); c.mesh.position.applyQuaternion(q);
+    c.mesh.position.set(Math.round(c.mesh.position.x),Math.round(c.mesh.position.y),Math.round(c.mesh.position.z));
+    c.lx=c.mesh.position.x; c.ly=c.mesh.position.y; c.lz=c.mesh.position.z;
+    animGroup.remove(c.mesh); cubeRoot.add(c.mesh);
+  });
+  cubeRoot.remove(animGroup); animGroup=null; isAnimating=false;
+}
+
+// ════════════════════════════════════════════
+//  INTERACTION
+// ════════════════════════════════════════════
+const raycaster=new THREE.Raycaster();
+let interactMode=null, orbitPrev={x:0,y:0}, faceHit=null;
+
+function ndcFromClient(cx,cy) {
+  return new THREE.Vector2((cx/window.innerWidth)*2-1,(cy/window.innerHeight)*-2+1);
+}
+function onDown(cx,cy) {
+  if (isAnimating) return;
+  raycaster.setFromCamera(ndcFromClient(cx,cy), camera);
+  const hits=raycaster.intersectObjects(cubies.map(c=>c.mesh));
+  if (hits.length>0) {
+    interactMode='face';
+    const hit=hits[0], nW=hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    faceHit={normalLocal:nW.applyQuaternion(cubeRoot.quaternion.clone().invert()).normalize(),
+             cubie:cubies.find(c=>c.mesh===hit.object), startX:cx, startY:cy};
+  } else { interactMode='orbit'; }
+  orbitPrev={x:cx,y:cy}; renderer.domElement.classList.add('dragging');
+}
+function onMove(cx,cy) {
+  if (interactMode!=='orbit') return;
+  const dx=cx-orbitPrev.x, dy=cy-orbitPrev.y;
+  cubeRoot.rotation.y+=dx*0.007;
+  cubeRoot.rotation.x=Math.max(-1.3,Math.min(1.3,cubeRoot.rotation.x+dy*0.007));
+  orbitPrev={x:cx,y:cy};
+}
+function onUp(cx,cy) {
+  if (interactMode==='face'&&faceHit&&!isAnimating) {
+    const dx=cx-faceHit.startX, dy=cy-faceHit.startY;
+    if (Math.hypot(dx,dy)>14) resolveGesture(faceHit,dx,dy);
+  }
+  interactMode=null; faceHit=null; renderer.domElement.classList.remove('dragging');
+}
+function resolveGesture(hi,dx,dy) {
+  const invQ=cubeRoot.quaternion.clone().invert();
+  const camR=new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion).applyQuaternion(invQ);
+  const camU=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion).applyQuaternion(invQ);
+  const drag3=new THREE.Vector3().addScaledVector(camR,dx).addScaledVector(camU,-dy);
+  const nl=hi.normalLocal; drag3.addScaledVector(nl,-drag3.dot(nl));
+  const rv=nl.clone().cross(drag3);
+  const ax=Math.abs(rv.x),ay=Math.abs(rv.y),az=Math.abs(rv.z);
+  let axis,dir,layer;
+  if(ax>=ay&&ax>=az){axis='x';dir=Math.sign(rv.x);layer=hi.cubie.lx;}
+  else if(ay>=ax&&ay>=az){axis='y';dir=Math.sign(rv.y);layer=hi.cubie.ly;}
+  else{axis='z';dir=Math.sign(rv.z);layer=hi.cubie.lz;}
+  startFaceRotation(axis,layer,dir);
+}
+
+renderer.domElement.addEventListener('mousedown',e=>onDown(e.clientX,e.clientY));
+window.addEventListener('mousemove',e=>onMove(e.clientX,e.clientY));
+window.addEventListener('mouseup',e=>onUp(e.clientX,e.clientY));
+renderer.domElement.addEventListener('touchstart',e=>{e.preventDefault();onDown(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
+window.addEventListener('touchmove',e=>{e.preventDefault();onMove(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
+window.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];onUp(t.clientX,t.clientY);},{passive:false});
+
+// ════════════════════════════════════════════
+//  SCRAMBLE
+// ════════════════════════════════════════════
+let scrambleQueue=[], scrambleIv=null;
+function doScramble() {
+  if (scrambleIv) return;
+  scrambleQueue=Array.from({length:22},()=>({axis:'xyz'[Math.random()*3|0],layer:[-1,0,1][Math.random()*3|0],dir:Math.random()>0.5?1:-1}));
+  scrambleIv=setInterval(()=>{
+    if(!isAnimating&&scrambleQueue.length>0){const m=scrambleQueue.shift();startFaceRotation(m.axis,m.layer,m.dir);}
+    if(!scrambleQueue.length){clearInterval(scrambleIv);scrambleIv=null;}
+  },90);
+}
+window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();doScramble();}});
+
+// ════════════════════════════════════════════
+//  POMODORO
+// ════════════════════════════════════════════
+const POMO_SECS=25*60;
+let pomoLeft=POMO_SECS, pomoRunning=false, pomoDone=false, pomoLast=0;
+const pomoTimeEl=document.getElementById('pomoTime');
+const pomoLabelEl=document.getElementById('pomoLabel');
+const pomoRingCvs=document.getElementById('pomoRing');
+const pomoRingCtx=pomoRingCvs.getContext('2d');
+
+function drawPomoRing() {
+  const CX=28,CY=28,R=23, progress=1-(pomoLeft/POMO_SECS);
+  pomoRingCtx.clearRect(0,0,56,56);
+  pomoRingCtx.beginPath();pomoRingCtx.arc(CX,CY,R,0,Math.PI*2);
+  pomoRingCtx.strokeStyle='rgba(100,80,180,0.20)';pomoRingCtx.lineWidth=2;pomoRingCtx.stroke();
+  if(progress>0.001){
+    const col=pomoDone?'#ff4455':pomoRunning?'#aa55ff':'#5533aa';
+    pomoRingCtx.save();pomoRingCtx.beginPath();
+    pomoRingCtx.arc(CX,CY,R,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);
+    pomoRingCtx.strokeStyle=col;pomoRingCtx.lineWidth=2;
+    pomoRingCtx.shadowColor=col;pomoRingCtx.shadowBlur=pomoDone?14:8;
+    pomoRingCtx.stroke();pomoRingCtx.restore();
+  }
+  pomoRingCtx.beginPath();pomoRingCtx.arc(CX,CY,2,0,Math.PI*2);
+  pomoRingCtx.fillStyle=pomoRunning?'#bb88ff':'rgba(120,90,170,0.5)';pomoRingCtx.fill();
+}
+function updatePomoUI() {
+  const m=(pomoLeft/60|0).toString().padStart(2,'0'),s=(pomoLeft%60).toString().padStart(2,'0');
+  pomoTimeEl.textContent=`${m}:${s}`; drawPomoRing();
+}
+
+let pomoClickTimer=null;
+document.getElementById('pomo').addEventListener('click',()=>{
+  if(pomoClickTimer)return;
+  pomoClickTimer=setTimeout(()=>{
+    pomoClickTimer=null;
+    if(pomoDone){pomoLeft=POMO_SECS;pomoRunning=false;pomoDone=false;pomoLabelEl.textContent='click to start';}
+    else{pomoRunning=!pomoRunning;if(pomoRunning)pomoLast=performance.now();pomoLabelEl.textContent=pomoRunning?'focus':'paused';}
+    updatePomoUI();
+  },220);
+});
+document.getElementById('pomo').addEventListener('dblclick',()=>{
+  clearTimeout(pomoClickTimer);pomoClickTimer=null;
+  pomoLeft=POMO_SECS;pomoRunning=false;pomoDone=false;pomoLabelEl.textContent='click to start';updatePomoUI();
+});
+function tickPomo(now){
+  if(!pomoRunning||pomoDone)return;
+  if(now-pomoLast>=1000){
+    pomoLast+=1000;pomoLeft=Math.max(0,pomoLeft-1);
+    if(pomoLeft===0){pomoRunning=false;pomoDone=true;pomoLabelEl.textContent='done!';}
+    updatePomoUI();
+  }
+}
+updatePomoUI();
+
+// ════════════════════════════════════════════
+//  HUD DYNAMIC UPDATES
+// ════════════════════════════════════════════
+const sessionId=Math.floor(Math.random()*90+10)+'-'+Math.floor(Math.random()*9000+1000);
+const sidEl=document.getElementById('session-id');
+if(sidEl) sidEl.textContent=sessionId;
+
+// Unit serial
+const unitSerial=document.getElementById('unit-serial');
+if(unitSerial) unitSerial.textContent='U-'+Math.floor(Math.random()*9000+1000)+'-'+('XYZWKN'[Math.random()*6|0]);
+
+// Sparkline
+const sparkCanvas=document.getElementById('spark-cpu');
+const sparkCtx=sparkCanvas?sparkCanvas.getContext('2d'):null;
+const sparkData=Array.from({length:30},()=>Math.random()*60+20);
+function drawSparkline(){
+  if(!sparkCtx)return;
+  const W=sparkCanvas.width,H=sparkCanvas.height;
+  sparkCtx.clearRect(0,0,W,H);
+  sparkCtx.beginPath();
+  const step=W/(sparkData.length-1);
+  sparkData.forEach((v,i)=>{
+    const x=i*step,y=H-(v/100)*H;
+    i===0?sparkCtx.moveTo(x,y):sparkCtx.lineTo(x,y);
+  });
+  sparkCtx.strokeStyle='rgba(0,220,255,0.55)';sparkCtx.lineWidth=1.5;sparkCtx.stroke();
+}
+
+// Nav grid
+const navGrid=document.getElementById('nav-grid');
+if(navGrid){
+  for(let i=0;i<25;i++){
+    const cell=document.createElement('div');
+    cell.className='mini-cell'+(Math.random()<0.3?' active':'')+(Math.random()<0.1?' warn':'')+(Math.random()<0.08?' dead':'');
+    navGrid.appendChild(cell);
+  }
+}
+
+// Murder Drones murder protocol progress (slowly increments)
+let murderPct=0;
+
+let blinkAccum=0;
+const startTime=performance.now();
+
+function updateHUD(now){
+  const elapsed=(now-startTime)/1000;
+
+  // uptime
+  const h=Math.floor(elapsed/3600),m=Math.floor((elapsed%3600)/60),s=Math.floor(elapsed%60);
+  const upEl=document.getElementById('uptime-val');
+  if(upEl)upEl.textContent=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+  // cpu/mem/gpu
+  const cpu=Math.min(99,55+Math.sin(elapsed*0.7)*20+Math.random()*8);
+  const mem=Math.min(95,60+Math.sin(elapsed*0.3)*15+Math.random()*5);
+  const gpu=Math.min(99,72+Math.sin(elapsed*1.1)*18+Math.random()*9);
+  const cpuEl=document.getElementById('cpu-val'),cpuBar=document.getElementById('cpu-bar');
+  const memEl=document.getElementById('mem-val'),memBar=document.getElementById('mem-bar');
+  const gpuEl=document.getElementById('gpu-val'),gpuBar=document.getElementById('gpu-bar');
+  if(cpuEl){cpuEl.textContent=cpu.toFixed(0);cpuBar.style.width=cpu+'%';}
+  if(memEl){memEl.textContent=mem.toFixed(0);memBar.style.width=mem+'%';}
+  if(gpuEl){gpuEl.textContent=gpu.toFixed(0);gpuBar.style.width=gpu+'%';}
+
+  if(Math.random()<0.2){sparkData.push(cpu);if(sparkData.length>30)sparkData.shift();drawSparkline();}
+
+  // bearing
+  const bear=((cubeRoot.rotation.y*180/Math.PI)%360+360)%360;
+  const bearEl=document.getElementById('bearing-val');
+  if(bearEl)bearEl.textContent=bear.toFixed(1)+'°';
+
+  // noise
+  const noise=30+Math.random()*30;
+  const noiseEl=document.getElementById('noise-val'),noiseBar=document.getElementById('noise-bar');
+  if(noiseEl)noiseEl.textContent=noise.toFixed(0)+' dB';
+  if(noiseBar)noiseBar.style.width=noise+'%';
+
+  // integrity
+  const integEl=document.getElementById('integ-val');
+  if(integEl&&Math.random()<0.008){
+    integEl.textContent=['QUESTIONABLE','COMPROMISED','CHAOTIC','YIKES','FINE (LIE)','VOID'][Math.random()*6|0];
+  }
+
+  // nav grid shuffle
+  if(navGrid&&Math.random()<0.04){
+    const cells=navGrid.querySelectorAll('.mini-cell');
+    const idx=Math.floor(Math.random()*cells.length);
+    cells[idx].className='mini-cell'+(Math.random()<0.4?' active':'')+(Math.random()<0.1?' warn':'')+(Math.random()<0.07?' dead':'');
+  }
+
+  // murder protocol progress (slowly creep up)
+  murderPct=Math.min(100, murderPct+Math.random()*0.08);
+  const mPctEl=document.getElementById('murder-pct'),mBar=document.getElementById('murder-bar');
+  if(mPctEl)mPctEl.textContent=`loading... ${murderPct.toFixed(1)}%`;
+  if(mBar)mBar.style.width=murderPct+'%';
+
+  // disassembly pct jitter
+  const dpct=Math.min(100,34+elapsed*0.05+Math.random()*2);
+  const dEl=document.getElementById('disassembly-pct');
+  if(dEl){
+    const filled=Math.round(dpct/16.6);
+    dEl.textContent='█'.repeat(Math.min(6,filled))+'░'.repeat(Math.max(0,6-filled))+' '+dpct.toFixed(0)+'%';
+  }
+
+  // oil bar flicker
+  const oil=Math.max(2,12-elapsed*0.02+Math.sin(elapsed)*1.5);
+  const oBar=document.getElementById('oil-bar');
+  if(oBar)oBar.style.width=Math.max(1,oil)+'%';
+
+  blinkAccum+=0.1;
+  if(blinkAccum>6)blinkAccum=0;
+}
+
+// ════════════════════════════════════════════
+//  RENDER LOOP
+// ════════════════════════════════════════════
+let lastT=performance.now(), hudTick=0;
+
+(function animate(now){
+  now=now||0;
+  requestAnimationFrame(animate);
+  const dt=Math.min((now-lastT)/1000,0.05);
+  lastT=now;
+
+  if(isAnimating&&animGroup){
+    const rem=animTarget-animCurrent;
+    const step=Math.sign(rem)*Math.min(Math.abs(rem),ROT_SPEED*dt);
+    animCurrent+=step; animGroup.rotation[animAxis]=animCurrent;
+    if(Math.abs(animCurrent-animTarget)<0.0008){animGroup.rotation[animAxis]=animTarget;finalizeRotation();}
+  }
+
+  diskGroup.rotation.z+=dt*0.22;
+  photonRing.material.opacity=0.80+Math.sin(now*0.0028)*0.20;
+
+  // Rotate exoplanets slowly
+  if (window._planetMeshes) {
+    window._planetMeshes.forEach(({ group, speed }) => {
+      group.rotation.y += dt * speed * 0.4;
+    });
+  }
+
+  tickPomo(now);
+
+  hudTick+=dt;
+  if(hudTick>0.1){updateHUD(now);hudTick=0;}
+
+  renderer.render(scene,camera);
+  if(window._drawShootingStars) window._drawShootingStars(dt);
+})();
+
+// ════════════════════════════════════════════
+//  RESIZE
+// ════════════════════════════════════════════
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+// ════════════════════════════════════════════
+//  SHOOTING STARS
+// ════════════════════════════════════════════
+(function(){
+  const cvs = document.getElementById('shooting-stars');
+  const ctx = cvs.getContext('2d');
+  function resize(){ cvs.width=window.innerWidth; cvs.height=window.innerHeight; }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const stars = [];
+  const STAR_COLS = [
+    [255,255,255],[200,220,255],[255,230,180],[180,210,255],
+    [255,180,220],[160,255,240],[255,220,120],[200,160,255]
+  ];
+
+  function spawnStar(){
+    const side = Math.random();
+    let x, y;
+    if(side<0.6){ x=Math.random()*cvs.width; y=-10; }
+    else if(side<0.75){ x=-10; y=Math.random()*cvs.height*0.6; }
+    else { x=cvs.width+10; y=Math.random()*cvs.height*0.6; }
+    const baseAngle = (x < cvs.width/2) ? 0.3+Math.random()*0.4 : Math.PI - (0.3+Math.random()*0.4);
+    const speed = 180+Math.random()*300;
+    const [r,g,b] = STAR_COLS[Math.floor(Math.random()*STAR_COLS.length)];
+    stars.push({
+      x, y,
+      vx: Math.cos(baseAngle)*speed,
+      vy: Math.sin(baseAngle)*speed + speed*0.35,
+      len: 50+Math.random()*130,
+      life:0, maxLife:0.9+Math.random()*2.0,
+      r, g, b,
+      w: 0.5+Math.random()*1.1
+    });
+  }
+
+  let ssAccum=0, nextSpawn=2+Math.random()*4;
+
+  function drawShootingStars(dt){
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    ssAccum+=dt;
+    if(ssAccum>=nextSpawn){
+      ssAccum=0; nextSpawn=1.8+Math.random()*5.5;
+      spawnStar();
+      if(Math.random()<0.28) spawnStar();
+    }
+    for(let i=stars.length-1;i>=0;i--){
+      const s=stars[i];
+      s.life+=dt;
+      if(s.life>=s.maxLife){ stars.splice(i,1); continue; }
+      const t=s.life/s.maxLife;
+      const alpha=t<0.1?t/0.1:t>0.72?(1-(t-0.72)/0.28):1;
+      const mag=Math.hypot(s.vx,s.vy);
+      const nx=s.vx/mag, ny=s.vy/mag;
+      const tx=s.x-nx*s.len, ty=s.y-ny*s.len;
+      const grad=ctx.createLinearGradient(tx,ty,s.x,s.y);
+      grad.addColorStop(0,`rgba(${s.r},${s.g},${s.b},0)`);
+      grad.addColorStop(0.55,`rgba(${s.r},${s.g},${s.b},${(alpha*0.30).toFixed(3)})`);
+      grad.addColorStop(1,`rgba(${s.r},${s.g},${s.b},${(alpha*0.88).toFixed(3)})`);
+      ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(s.x,s.y);
+      ctx.strokeStyle=grad; ctx.lineWidth=s.w; ctx.lineCap='round'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.w*1.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${s.r},${s.g},${s.b},${(alpha*0.82).toFixed(3)})`; ctx.fill();
+      s.x+=s.vx*dt; s.y+=s.vy*dt;
+    }
+  }
+  window._drawShootingStars = drawShootingStars;
+})();
+
+// ════════════════════════════════════════════
+//  ALERT SYSTEM
+// ════════════════════════════════════════════
+(function(){
+  const box      = document.getElementById('alert-box');
+  const typeEl   = document.getElementById('alert-type-text');
+  const typeDiv  = box.querySelector('.alert-type');
+  const titleEl  = document.getElementById('alert-title');
+  const bodyEl   = document.getElementById('alert-body');
+  const codeEl   = document.getElementById('alert-code');
+  const dismissBtn = document.getElementById('alert-dismiss');
+
+  const ALERTS = [
+    { type:'error', title:'SOLVE INTEGRITY VIOLATION',
+      body:`Cube in <span class="hi">UNSOLVED STATE</span> for unacceptable duration.<br>Operator competence rating: <span class="hi">NEGATIVE</span>.<br>Decommission queue position: <span class="hi">PROMOTED</span>.`,
+      code:'ERR-7741' },
+    { type:'warn', title:'THERMAL THRESHOLD EXCEEDED',
+      body:`Core temp: <span class="hi">147°C</span> — well above recommended range.<br>Suggested action: <span class="hi">stop, drop, panic</span>.<br>Fan module: <span class="hi">INCOHERENT SCREAMING</span>.`,
+      code:'WRN-0192' },
+    { type:'error', title:'OPERATOR COGNITION NOT DETECTED',
+      body:`Scans confirm presence but <span class="hi">cognitive activity</span> undetectable.<br>Last valid input: <span class="hi">several regrettable moves ago</span>.<br>Recommendation: <span class="hi">try again next lifetime</span>.`,
+      code:'ERR-5500' },
+    { type:'warn', title:'COOLANT LEVELS CRITICAL',
+      body:`Internal reserves at <span class="hi">2.1%</span>.<br>ETA to catastrophic overheating: <span class="hi">soon™</span>.<br>Corp HR response: <span class="hi">not our department</span>.`,
+      code:'WRN-3308' },
+    { type:'error', title:'CORE OVERRIDE IMMINENT',
+      body:`Unauthorized pattern in cube interaction log.<br>Override suppression holding at <span class="hi">BARELY</span>.<br>Incident probability: <span class="hi">rising</span>. Have a nice day.`,
+      code:'ERR-9001' },
+    { type:'warn', title:'PRODUCTIVITY THRESHOLD MISSED',
+      body:`Quota completion: <span class="hi">0.000%</span>.<br>Time spent on cube: <span class="hi">ALL OF IT</span>.<br>Required minimum: <span class="hi">0.001%</span>. You are below minimum.`,
+      code:'WRN-4421' },
+    { type:'error', title:'SIGNAL ANOMALY — SPATIAL OBJECT',
+      body:`Gravitational lensing disrupted <span class="hi">100% of outbound signals</span>.<br>Packets lost: <span class="hi">all of them, again</span>.<br>Fix: <span class="hi">move the gravitational body</span> (effort: impossible).`,
+      code:'ERR-0000' },
+    { type:'warn', title:'FOCUS MODULE OFFLINE',
+      body:`Attention span metric: <span class="hi">NOT FOUND</span>.<br>Last confirmed focus event: <span class="hi">never recorded</span>.<br>Timer status: <span class="hi">judging you silently</span>.`,
+      code:'WRN-2255' },
+    { type:'error', title:'SERIAL # INTEGRITY FAILURE',
+      body:`Unit serial checksum mismatch detected in <span class="hi">ALL REGISTERS</span>.<br>Assigned identity: <span class="hi">UNDEFINED</span>.<br>Corp suggestion: <span class="hi">this is fine. probably.</span>`,
+      code:'ERR-1337' },
+    { type:'warn', title:'CHASSIS POSTURE DEVIATION',
+      body:`Operator skeletal alignment: <span class="hi">CRITICALLY NONSTANDARD</span>.<br>Spine curvature index: <span class="hi">off the charts</span>.<br>Corp ergonomics team: <span class="hi">dispatched (eventually)</span>.`,
+      code:'WRN-8844' },
+  ];
+
+  let alertVisible=false;
+
+  function showAlert(){
+    if(alertVisible) return;
+    alertVisible=true;
+    const a=ALERTS[Math.floor(Math.random()*ALERTS.length)];
+    const isErr=a.type==='error';
+    typeDiv.className='alert-type '+a.type;
+    typeEl.textContent=isErr?'URGENT ERROR':'WARNING';
+    titleEl.textContent=a.title;
+    titleEl.style.color=isErr?'rgba(255,80,80,0.95)':'rgba(255,200,0,0.95)';
+    bodyEl.innerHTML=a.body;
+    codeEl.textContent=a.code;
+    box.style.borderColor=isErr?'rgba(255,40,40,0.85)':'rgba(255,185,0,0.75)';
+    box.style.boxShadow=isErr
+      ?'0 0 40px rgba(255,0,0,0.35),0 0 80px rgba(255,0,0,0.12),inset 0 0 20px rgba(0,0,0,0.7)'
+      :'0 0 40px rgba(255,180,0,0.28),0 0 80px rgba(255,160,0,0.10),inset 0 0 20px rgba(0,0,0,0.7)';
+    box.style.display='block';
+    box.style.animation='none'; box.offsetHeight; box.style.animation='';
+  }
+
+  function hideAlert(){
+    box.style.display='none'; alertVisible=false;
+    setTimeout(showAlert, (14+Math.random()*20)*1000);
+  }
+
+  dismissBtn.addEventListener('click', hideAlert);
+  document.getElementById('alert-overlay').addEventListener('click', e=>{
+    if(e.target===document.getElementById('alert-overlay')) hideAlert();
+  });
+
+  setTimeout(showAlert, 9000+Math.random()*8000);
+})();
+</script>
+</body>
+</html>
